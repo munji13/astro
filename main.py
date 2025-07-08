@@ -1,216 +1,73 @@
 import streamlit as st
-
 import numpy as np
-
-from astropy.io import fits
-
-from PIL import Image
-
-from astropy.coordinates import SkyCoord, EarthLocation, AltAz
-
-from astropy.time import Time
-
-from datetime import datetime
-
-
-# --- Streamlit 앱 페이지 설정 ---
-
-st.set_page_config(page_title="천문 이미지 분석기", layout="wide")
-
-st.title("🔭 천문 이미지 처리 앱")
-
-
-# --- 파일 업로더 ---
-
-uploaded_file = st.file_uploader(
-
-    "분석할 FITS 파일을 선택하세요.",
-
-    type=['fits', 'fit', 'fz']
-
-)
-
-
-# --- 서울 위치 설정 (고정값) ---
-
-seoul_location = EarthLocation(lat=37.5665, lon=126.9780, height=50)  # 서울 위도/경도/고도
-
-
-# --- 현재 시간 (UTC 기준) ---
-
-now = datetime.utcnow()
-
-now_astropy = Time(now)
-
-
-# --- 파일이 업로드되면 실행될 로직 ---
-
-if uploaded_file:
-
-    try:
-
-        with fits.open(uploaded_file) as hdul:
-
-            image_hdu = None
-
-            for hdu in hdul:
-
-                if hdu.data is not None and hdu.is_image:
-
-                    image_hdu = hdu
-
-                    break
-
-
-            if image_hdu is None:
-
-                st.error("파일에서 유효한 이미지 데이터를 찾을 수 없습니다.")
-
-            else:
-
-                header = image_hdu.header
-
-                data = image_hdu.data
-
-                data = np.nan_to_num(data)
-
-
-                st.success(f"**'{uploaded_file.name}'** 파일을 성공적으로 처리했습니다.")
-
-                col1, col2 = st.columns(2)
-
-
-                with col1:
-
-                    st.header("이미지 정보")
-
-                    st.text(f"크기: {data.shape[1]} x {data.shape[0]} 픽셀")
-
-                    if 'OBJECT' in header:
-
-                        st.text(f"관측 대상: {header['OBJECT']}")
-
-                    if 'EXPTIME' in header:
-
-                        st.text(f"노출 시간: {header['EXPTIME']} 초")
-
-
-                    st.header("물리량")
-
-                    mean_brightness = np.mean(data)
-
-                    st.metric(label="이미지 전체 평균 밝기", value=f"{mean_brightness:.2f}")
-
-
-                with col2:
-
-                    st.header("이미지 미리보기")
-
-                    if data.max() == data.min():
-
-                        norm_data = np.zeros(data.shape, dtype=np.uint8)
-
-                    else:
-
-                        scale_min = np.percentile(data, 5)
-
-                        scale_max = np.percentile(data, 99.5)
-
-                        data_clipped = np.clip(data, scale_min, scale_max)
-
-                        norm_data = (255 * (data_clipped - scale_min) / (scale_max - scale_min)).astype(np.uint8)
-
-
-                    img = Image.fromarray(norm_data)
-
-                    st.image(img, caption="업로드된 FITS 이미지", use_container_width=True)
-
-
-
-                # --- 사이드바: 현재 천체 위치 계산 ---
-
-                st.sidebar.header("🧭 현재 천체 위치 (서울 기준)")
-
-
-                if 'RA' in header and 'DEC' in header:
-
-                    try:
-
-                        target_coord = SkyCoord(ra=header['RA'], dec=header['DEC'], unit=('hourangle', 'deg'))
-
-                        altaz = target_coord.transform_to(AltAz(obstime=now_astropy, location=seoul_location))
-
-                        altitude = altaz.alt.degree
-
-                        azimuth = altaz.az.degree
-
-
-                        st.sidebar.metric("고도 (°)", f"{altitude:.2f}")
-
-                        st.sidebar.metric("방위각 (°)", f"{azimuth:.2f}")
-
-                    except Exception as e:
-
-                        st.sidebar.warning(f"천체 위치 계산 실패: {e}")
-
-                else:
-
-                    st.sidebar.info("FITS 헤더에 RA/DEC 정보가 없습니다.")
-
-
-    except Exception as e:
-
-        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
-
-        st.warning("파일이 손상되었거나 유효한 FITS 형식이 아닐 수 있습니다.")
-
-else:
-
-    st.info("시작하려면 FITS 파일을 업로드해주세요.")
-
-
-# --- 💬 댓글 기능 (세션 기반) ---
-
-st.divider()
-
-st.header("💬 의견 남기기")
-
-
-if "comments" not in st.session_state:
-
-    st.session_state.comments = []
-
-
-with st.form(key="comment_form"):
-
-    name = st.text_input("이름을 입력하세요", key="name_input")
-
-    comment = st.text_area("댓글을 입력하세요", key="comment_input")
-
-    submitted = st.form_submit_button("댓글 남기기")
-
-
-    if submitted:
-
-        if name.strip() and comment.strip():
-
-            st.session_state.comments.append((name.strip(), comment.strip()))
-
-            st.success("댓글이 저장되었습니다.")
-
-        else:
-
-            st.warning("이름과 댓글을 모두 입력해주세요.")
-
-
-if st.session_state.comments:
-
-    st.subheader("📋 전체 댓글")
-
-    for i, (n, c) in enumerate(reversed(st.session_state.comments), 1):
-
-        st.markdown(f"**{i}. {n}**: {c}")
-
-else:
-
-    st.info("아직 댓글이 없습니다. 첫 댓글을 남겨보세요!")
+from scipy.integrate import odeint
+import matplotlib.pyplot as plt
+
+# Streamlit 앱 제목
+st.title("쌍성계 주위 행성 궤적 시뮬레이션")
+
+# 쌍성계 매개변수 입력
+st.sidebar.header("쌍성계 설정")
+M1 = st.sidebar.slider("항성 1 질량 (태양질량 단위)", 0.1, 5.0, 1.0, 0.1)
+M2 = st.sidebar.slider("항성 2 질량 (태양질량 단위)", 0.1, 5.0, 1.0, 0.1)
+d = st.sidebar.slider("항성 간 거리 (천문단위, AU)", 0.5, 10.0, 2.0, 0.5)
+
+# 행성 초기 조건
+st.sidebar.header("행성 초기 조건")
+x0 = st.sidebar.slider("행성 초기 x 위치 (AU)", -10.0, 10.0, 5.0, 0.5)
+y0 = st.sidebar.slider("행성 초기 y 위치 (AU)", -10.0, 10.0, 0.0, 0.5)
+vx0 = st.sidebar.slider("행성 초기 x 속도 (AU/yr)", -5.0, 5.0, 0.0, 0.1)
+vy0 = st.sidebar.slider("행성 초기 y 속도 (AU/yr)", -5.0, 5.0, 2.0, 0.1)
+
+# 중력 상수 (AU^3 / 태양질량 / 년^2 단위)
+G = 4 * np.pi**2
+
+# 항성 위치 계산 (질량 중심을 원점으로)
+x1 = -M2 * d / (M1 + M2)
+x2 = M1 * d / (M1 + M2)
+y1, y2 = 0.0, 0.0
+
+# 운동 방정식 정의
+def equations(state, t):
+    x, y, vx, vy = state
+    r1 = np.sqrt((x - x1)**2 + y**2)
+    r2 = np.sqrt((x - x2)**2 + y**2)
+    ax = -G * M1 * (x - x1) / r1**3 - G * M2 * (x - x2) / r2**3
+    ay = -G * M1 * y / r1**3 - G * M2 * y / r2**3
+    return [vx, vy, ax, ay]
+
+# 시간 배열
+t = np.linspace(0, 50, 1000)
+
+# 초기 상태
+initial_state = [x0, y0, vx0, vy0]
+
+# 운동 방정식 적분
+solution = odeint(equations, initial_state, t)
+
+# 궤적 데이터
+x, y = solution[:, 0], solution[:, 1]
+
+# 시각화
+fig, ax = plt.subplots(figsize=(8, 8))
+ax.plot(x, y, 'b-', label='행성 궤적')
+ax.plot(x1, y1, 'ro', markersize=10, label=f'항성 1 (M={M1})')
+ax.plot(x2, y2, 'go', markersize=10, label=f'항성 2 (M={M2})')
+ax.set_xlabel('x (AU)')
+ax.set_ylabel('y (AU)')
+ax.set_title('쌍성계 주위 행성 궤적')
+ax.legend()
+ax.grid(True)
+ax.set_aspect('equal')
+
+# Streamlit에 플롯 표시
+st.pyplot(fig)
+
+# 설명 텍스트
+st.write("""
+이 애플리케이션은 쌍성계 주위를 공전하는 행성의 궤적을 시뮬레이션합니다.  
+- **항성 1, 2 질량**: 태양질량 단위로 조정하여 중력 영향을 변경합니다.  
+- **항성 간 거리**: 두 항성 간 거리(AU)를 변경하여 궤적 모양에 영향을 줍니다.  
+- **행성 초기 조건**: 행성의 초기 위치와 속도를 설정하여 다양한 궤적을 탐색할 수 있습니다.  
+궤적은 50년 동안의 운동을 보여줍니다.
+""")
