@@ -4,11 +4,14 @@ import seaborn as sns
 import numpy as np
 
 # Streamlit 페이지 설정
-st.title("H-R Diagram with Stellar Evolution Path")
-st.write("별의 질량을 입력하여 H-R 다이어그램 상의 주계열성 위치와 진화 경로를 시각화합니다.")
+st.title("H-R Diagram with Stellar Evolution Path (10 Stars)")
+st.write("10개의 별의 질량을 입력하여 H-R 다이어그램 상의 위치와 진화 경로를 시각화합니다.")
 
-# 사용자 입력
-mass = st.number_input("질량 (태양 질량 단위, M☉)", min_value=0.1, max_value=50.0, value=1.0, format="%.2f")
+# 사용자 입력 (10개 별의 질량)
+masses = []
+for i in range(10):
+    mass = st.number_input(f"별 {i+1} 질량 (태양 질량 단위, M☉)", min_value=0.1, max_value=50.0, value=1.0 + i * 0.5, format="%.2f", key=f"mass_{i}")
+    masses.append(mass)
 
 # 광도와 온도 추정
 def estimate_luminosity_and_temperature(mass):
@@ -16,11 +19,15 @@ def estimate_luminosity_and_temperature(mass):
     temperature = 5800 * (mass ** 0.5)  # T/T☉ ≈ (M/M☉)^0.5, 태양 온도 5800K 기준
     return luminosity, temperature
 
-luminosity, temperature = estimate_luminosity_and_temperature(mass)
-st.write(f"추정된 광도: {luminosity:.2f} L☉")
-st.write(f"추정된 표면 온도: {temperature:.0f} K")
+luminosities = []
+temperatures = []
+for mass in masses:
+    lum, temp = estimate_luminosity_and_temperature(mass)
+    luminosities.append(lum)
+    temperatures.append(temp)
+    st.write(f"별 {masses.index(mass)+1}: 질량 {mass:.2f} M☉, 광도 {lum:.2f} L☉, 온도 {temp:.0f} K")
 
-# 베지어 곡선 생성 함수 (수정)
+# 베지어 곡선 생성 함수
 def bezier_curve(points, n_points=100):
     t = np.linspace(0, 1, n_points)
     n = len(points) - 1
@@ -37,8 +44,8 @@ def bezier_curve(points, n_points=100):
     return curve[:, 0], curve[:, 1]
 
 # H-R 다이어그램 생성 함수
-def plot_hr_diagram(mass, luminosity, temperature):
-    fig, ax = plt.subplots(figsize=(10, 8))
+def plot_hr_diagram(masses, luminosities, temperatures):
+    fig, ax = plt.subplots(figsize=(12, 10))
     
     # H-R 다이어그램 배경 설정
     sns.set(style="whitegrid")
@@ -48,57 +55,63 @@ def plot_hr_diagram(mass, luminosity, temperature):
     ax.set_ylim(1e-4, 1e6)
     ax.set_xlabel("Surface Temperature (K)")
     ax.set_ylabel("Luminosity (L☉)")
-    ax.set_title("Hertzsprung-Russell Diagram")
+    ax.set_title("Hertzsprung-Russell Diagram (10 Stars)")
     
     # 주계열성 영역 표시
     main_sequence_temp = np.logspace(np.log10(2000), np.log10(50000), 100)
     main_sequence_lum = 10 ** (3.5 * np.log10(main_sequence_temp / 5800))
     ax.plot(main_sequence_temp, main_sequence_lum, 'k-', label="Main Sequence", alpha=0.5)
     
-    # 현재 별 위치 표시
-    ax.scatter([temperature], [luminosity], color='red', s=100, label="Current Star (Main Sequence)", zorder=10)
+    # 각 별의 현재 위치 및 진화 경로 표시
+    for i in range(len(masses)):
+        mass = masses[i]
+        lum = luminosities[i]
+        temp = temperatures[i]
+        
+        # 현재 별 위치 표시
+        ax.scatter([temp], [lum], color=f'C{i}', s=100, label=f"Star {i+1} (Main Sequence)", zorder=10)
+        
+        # 진화 경로 정의
+        if mass < 0.8:  # 저질량 별
+            past_points = [(temp * 1.5, lum * 1000), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.8, lum * 0.01), (30000, 1e-4)]
+        elif mass < 8:  # 중간 질량 별
+            past_points = [(temp * 1.5, lum * 1000), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.5, lum * 100), (10000, lum * 10), (30000, 1e-4)]
+        else:  # 고질량 별
+            past_points = [(temp * 1.2, lum * 1000), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.3, lum * 1000), (5000, 1e5)]
+        
+        # 베지어 곡선으로 경로 그리기
+        past_temp, past_lum = bezier_curve(past_points)
+        future_temp, future_lum = bezier_curve(future_points)
+        
+        # 과거 경로 (파란 계열 곡선, 화살표)
+        ax.plot(past_temp, past_lum, f'C{i}--', alpha=0.7)
+        ax.arrow(past_temp[-2], past_lum[-2], past_temp[-1] - past_temp[-2], past_lum[-1] - past_lum[-2],
+                 color=f'C{i}', width=0.05, head_width=0.2, head_length=0.3, alpha=0.7)
+        
+        # 미래 경로 (녹색 계열 곡선, 화살표)
+        ax.plot(future_temp, future_lum, f'C{i+5}--', alpha=0.7)
+        ax.arrow(future_temp[-2], future_lum[-2], future_temp[-1] - future_temp[-2], future_lum[-1] - future_lum[-2],
+                 color=f'C{i+5}', width=0.05, head_width=0.2, head_length=0.3, alpha=0.7)
     
-    # 진화 경로 정의
-    if mass < 0.8:  # 저질량 별
-        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]
-        future_points = [(temperature, luminosity), (temperature * 0.8, luminosity * 0.01), (30000, 1e-4)]
-    elif mass < 8:  # 중간 질량 별
-        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]
-        future_points = [(temperature, luminosity), (temperature * 0.5, luminosity * 100), (10000, luminosity * 10), (30000, 1e-4)]
-    else:  # 고질량 별
-        past_points = [(temperature * 1.2, luminosity * 1000), (temperature, luminosity)]
-        future_points = [(temperature, luminosity), (temperature * 0.3, luminosity * 1000), (5000, 1e5)]
-    
-    # 베지어 곡선으로 경로 그리기
-    past_temp, past_lum = bezier_curve(past_points)
-    future_temp, future_lum = bezier_curve(future_points)
-    
-    # 과거 경로 (파란 곡선, 화살표)
-    ax.plot(past_temp, past_lum, 'b--', label="Past Evolution", alpha=0.7)
-    ax.arrow(past_temp[-2], past_lum[-2], past_temp[-1] - past_temp[-2], past_lum[-1] - past_lum[-2],
-             color='blue', width=0.05, head_width=0.2, head_length=0.3, alpha=0.7)
-    
-    # 미래 경로 (녹색 곡선, 화살표)
-    ax.plot(future_temp, future_lum, 'g--', label="Future Evolution", alpha=0.7)
-    ax.arrow(future_temp[-2], future_lum[-2], future_temp[-1] - future_temp[-2], future_lum[-1] - future_lum[-2],
-             color='green', width=0.05, head_width=0.2, head_length=0.3, alpha=0.7)
-    
-    # 범례 추가
+    # 범례 추가 (각 별의 현재 위치만 표시)
     ax.legend()
     
     return fig
 
 # H-R 다이어그램 표시
 if st.button("H-R 다이어그램 생성"):
-    fig = plot_hr_diagram(mass, luminosity, temperature)
+    fig = plot_hr_diagram(masses, luminosities, temperatures)
     st.pyplot(fig)
 
 # 설명
 st.markdown("""
 ### 사용 방법
-1. 별의 질량(M☉)을 입력하세요.
+1. 10개의 별의 질량(M☉)을 입력하세요.
 2. 'H-R 다이어그램 생성' 버튼을 클릭하세요.
-3. H-R 다이어그램에 주계열성의 위치(빨간 점), 과거 진화 경로(파란 곡선, 화살표), 미래 진화 경로(녹색 곡선, 화살표)가 표시됩니다.
+3. H-R 다이어그램에 각 별의 위치(다양한 색상 점), 과거 진화 경로(해당 색상 곡선, 화살표), 미래 진화 경로(다른 색상 곡선, 화살표)가 표시됩니다.
 
 ### 참고
 - 광도와 온도는 질량-광도 관계(L ∝ M^3.5)와 질량-온도 관계(T ∝ M^0.5)를 사용해 추정됩니다.
