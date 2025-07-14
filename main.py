@@ -39,7 +39,7 @@ def generate_hr_diagram(luminosity, temperature):
         marker=dict(size=10, color='red', symbol='star')
     ))
 
-    # 진화 경로 시�레이션 (간단한 모델)
+    # 진화 경로 시뮬레이션 (간단한 모델)
     evolution_temp, evolution_lum = simulate_evolution(temperature, luminosity)
 
     # 진화 경로 플롯
@@ -65,7 +65,7 @@ def generate_hr_diagram(luminosity, temperature):
 
     return fig
 
-# 간단한 진화 경로 시�레이션 함수
+# 간단한 진화 경로 시뮬레이션 함수
 def simulate_evolution(temperature, luminosity):
     # 초기 질량 추정 (주계열 근사)
     mass = estimate_mass(luminosity, temperature)
@@ -101,7 +101,7 @@ def estimate_mass(luminosity, temperature):
 fig = generate_hr_diagram(luminosity, temperature)
 st.plotly_chart(fig, use_container_width=True)
 
-# 진화 시�레이션 애니메이션
+# 진화 시뮬레이션 애니메이션
 if st.button("Run Evolution Simulation"):
     st.write("Simulating stellar evolution...")
     evolution_temp, evolution_lum = simulate_evolution(temperature, luminosity)
