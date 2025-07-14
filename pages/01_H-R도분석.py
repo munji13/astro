@@ -2,7 +2,6 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from scipy.interpolate import interp1d
 
 # Streamlit 페이지 설정
 st.title("H-R Diagram with Stellar Evolution Path")
@@ -21,14 +20,19 @@ luminosity, temperature = estimate_luminosity_and_temperature(mass)
 st.write(f"추정된 광도: {luminosity:.2f} L☉")
 st.write(f"추정된 표면 온도: {temperature:.0f} K")
 
-# 베지어 곡선 생성 함수
+# 베지어 곡선 생성 함수 (수정)
 def bezier_curve(points, n_points=100):
     t = np.linspace(0, 1, n_points)
     n = len(points) - 1
     curve = np.zeros((n_points, 2))
     for i in range(n_points):
+        t_i = t[i]
         for j in range(n + 1):
-            coef = np.math.comb(n, j) * (1 - t[i]) ** (n - j) * t[i] ** j
+            # 조합 계수 수동 계산 (n choose j)
+            coef = 1.0
+            for k in range(j):
+                coef *= (n - k) / (k + 1)
+            coef *= (1 - t_i) ** (n - j) * (t_i ** j)
             curve[i] += coef * np.array(points[j])
     return curve[:, 0], curve[:, 1]
 
@@ -56,14 +60,14 @@ def plot_hr_diagram(mass, luminosity, temperature):
     
     # 진화 경로 정의
     if mass < 0.8:  # 저질량 별
-        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]  # 원시성 → 주계열
-        future_points = [(temperature, luminosity), (temperature * 0.8, luminosity * 0.01), (30000, 1e-4)]  # 주계열 → 백색왜성
+        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]
+        future_points = [(temperature, luminosity), (temperature * 0.8, luminosity * 0.01), (30000, 1e-4)]
     elif mass < 8:  # 중간 질량 별
-        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]  # 원시성 → 주계열
-        future_points = [(temperature, luminosity), (temperature * 0.5, luminosity * 100), (10000, luminosity * 10), (30000, 1e-4)]  # 주계열 → 적색거성 → 백색왜성
+        past_points = [(temperature * 1.5, luminosity * 1000), (temperature, luminosity)]
+        future_points = [(temperature, luminosity), (temperature * 0.5, luminosity * 100), (10000, luminosity * 10), (30000, 1e-4)]
     else:  # 고질량 별
-        past_points = [(temperature * 1.2, luminosity * 1000), (temperature, luminosity)]  # 원시성 → 주계열
-        future_points = [(temperature, luminosity), (temperature * 0.3, luminosity * 1000), (5000, 1e5)]  # 주계열 → 초거성 → 초신성
+        past_points = [(temperature * 1.2, luminosity * 1000), (temperature, luminosity)]
+        future_points = [(temperature, luminosity), (temperature * 0.3, luminosity * 1000), (5000, 1e5)]
     
     # 베지어 곡선으로 경로 그리기
     past_temp, past_lum = bezier_curve(past_points)
