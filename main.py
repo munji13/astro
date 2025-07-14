@@ -1,78 +1,216 @@
 import streamlit as st
-import matplotlib.pyplot as plt
-import seaborn as sns
+
 import numpy as np
 
-# Streamlit 페이지 설정
-st.title("H-R Diagram with Stellar Evolution Path")
-st.write("주계열성의 광도와 표면 온도를 입력하여 H-R 다이어그램 상의 위치와 진화 경로를 시각화합니다.")
+from astropy.io import fits
 
-# 사용자 입력
-luminosity = st.number_input("광도 (태양 광도 단위, L☉)", min_value=1e-4, max_value=1e6, value=1.0, format="%.4f")
-temperature = st.number_input("표면 온도 (Kelvin)", min_value=2000, max_value=40000, value=5800, step=100)
+from PIL import Image
 
-# 질량 추정 (질량-광도 관계: L ∝ M^3.5)
-def estimate_mass(luminosity):
-    return (luminosity ** (1/3.5))  # 태양 질량 단위
+from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
-mass = estimate_mass(luminosity)
-st.write(f"추정된 별의 질량: {mass:.2f} 태양 질량")
+from astropy.time import Time
 
-# H-R 다이어그램 생성 함수
-def plot_hr_diagram(luminosity, temperature, mass):
-    fig, ax = plt.subplots(figsize=(10, 8))
-    
-    # H-R 다이어그램 배경 설정
-    sns.set(style="whitegrid")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlim(40000, 2000)  # 온도는 왼쪽이 높음
-    ax.set_ylim(1e-4, 1e6)
-    ax.set_xlabel("Surface Temperature (K)")
-    ax.set_ylabel("Luminosity (L☉)")
-    ax.set_title("Hertzsprung-Russell Diagram")
-    
-    # 주계열성 영역 표시
-    main_sequence_temp = np.logspace(np.log10(2000), np.log10(40000), 100)
-    main_sequence_lum = 10 ** (3.5 * np.log10(main_sequence_temp / 5800))  # L ∝ T^3.5
-    ax.plot(main_sequence_temp, main_sequence_lum, 'k-', label="Main Sequence", alpha=0.5)
-    
-    # 별의 현재 위치 표시
-    ax.scatter([temperature], [luminosity], color='red', s=100, label="Current Star", zorder=10)
-    
-    # 진화 경로 생성
-    if mass < 0.8:  # 저질량 별 (적색왜성 → 백색왜성)
-        path_temp = [temperature, temperature * 0.8, 30000, 30000]  # 원시성 → 주계열 → 백색왜성
-        path_lum = [luminosity * 1000, luminosity, luminosity * 0.01, 1e-4]
-    elif mass < 8:  # 중간 질량 별 (태양 유사 → 적색거성 → 백색왜성)
-        path_temp = [temperature * 1.5, temperature, temperature * 0.5, 10000, 30000]  # 원시성 → 주계열 → 적색거성 → 백색왜성
-        path_lum = [luminosity * 1000, luminosity, luminosity * 100, luminosity * 10, 1e-4]
-    else:  # 고질량 별 (주계열 → 초거성 → 초신성)
-        path_temp = [temperature * 1.2, temperature, temperature * 0.3, 5000]  # 원시성 → 주계열 → 초거성 → 초신성
-        path_lum = [luminosity * 1000, luminosity, luminosity * 1000, 1e5]
-    
-    # 진화 경로 표시
-    ax.plot(path_temp, path_lum, 'b--', label="Evolutionary Path", alpha=0.7)
-    
-    # 범례 추가
-    ax.legend()
-    
-    return fig
+from datetime import datetime
 
-# H-R 다이어그램 표시
-if st.button("H-R 다이어그램 생성"):
-    fig = plot_hr_diagram(luminosity, temperature, mass)
-    st.pyplot(fig)
 
-# 설명
-st.markdown("""
-### 사용 방법
-1. 광도(L☉)와 표면 온도(K)를 입력하세요.
-2. 'H-R 다이어그램 생성' 버튼을 클릭하세요.
-3. H-R 다이어그램에 별의 현재 위치(빨간 점)와 추정된 진화 경로(파란 점선)가 표시됩니다.
+# --- Streamlit 앱 페이지 설정 ---
 
-### 참고
-- 주계열성은 H-R 다이어그램에서 대각선 띠에 위치합니다.
-- 진화 경로는 별의 질량에 따라 다르며, 저질량/중간질량/고질량 별로 구분됩니다.
-- 이 프로그램은 단순화된 모델을 사용하며, 실제 천문학적 시뮬레이션은 더 복잡합니다.
-""")
+st.set_page_config(page_title="천문 이미지 분석기", layout="wide")
+
+st.title("🔭 천문 이미지 처리 앱")
+
+
+# --- 파일 업로더 ---
+
+uploaded_file = st.file_uploader(
+
+    "분석할 FITS 파일을 선택하세요.",
+
+    type=['fits', 'fit', 'fz']
+
+)
+
+
+# --- 서울 위치 설정 (고정값) ---
+
+seoul_location = EarthLocation(lat=37.5665, lon=126.9780, height=50)  # 서울 위도/경도/고도
+
+
+# --- 현재 시간 (UTC 기준) ---
+
+now = datetime.utcnow()
+
+now_astropy = Time(now)
+
+
+# --- 파일이 업로드되면 실행될 로직 ---
+
+if uploaded_file:
+
+    try:
+
+        with fits.open(uploaded_file) as hdul:
+
+            image_hdu = None
+
+            for hdu in hdul:
+
+                if hdu.data is not None and hdu.is_image:
+
+                    image_hdu = hdu
+
+                    break
+
+
+            if image_hdu is None:
+
+                st.error("파일에서 유효한 이미지 데이터를 찾을 수 없습니다.")
+
+            else:
+
+                header = image_hdu.header
+
+                data = image_hdu.data
+
+                data = np.nan_to_num(data)
+
+
+                st.success(f"**'{uploaded_file.name}'** 파일을 성공적으로 처리했습니다.")
+
+                col1, col2 = st.columns(2)
+
+
+                with col1:
+
+                    st.header("이미지 정보")
+
+                    st.text(f"크기: {data.shape[1]} x {data.shape[0]} 픽셀")
+
+                    if 'OBJECT' in header:
+
+                        st.text(f"관측 대상: {header['OBJECT']}")
+
+                    if 'EXPTIME' in header:
+
+                        st.text(f"노출 시간: {header['EXPTIME']} 초")
+
+
+                    st.header("물리량")
+
+                    mean_brightness = np.mean(data)
+
+                    st.metric(label="이미지 전체 평균 밝기", value=f"{mean_brightness:.2f}")
+
+
+                with col2:
+
+                    st.header("이미지 미리보기")
+
+                    if data.max() == data.min():
+
+                        norm_data = np.zeros(data.shape, dtype=np.uint8)
+
+                    else:
+
+                        scale_min = np.percentile(data, 5)
+
+                        scale_max = np.percentile(data, 99.5)
+
+                        data_clipped = np.clip(data, scale_min, scale_max)
+
+                        norm_data = (255 * (data_clipped - scale_min) / (scale_max - scale_min)).astype(np.uint8)
+
+
+                    img = Image.fromarray(norm_data)
+
+                    st.image(img, caption="업로드된 FITS 이미지", use_container_width=True)
+
+
+
+                # --- 사이드바: 현재 천체 위치 계산 ---
+
+                st.sidebar.header("🧭 현재 천체 위치 (서울 기준)")
+
+
+                if 'RA' in header and 'DEC' in header:
+
+                    try:
+
+                        target_coord = SkyCoord(ra=header['RA'], dec=header['DEC'], unit=('hourangle', 'deg'))
+
+                        altaz = target_coord.transform_to(AltAz(obstime=now_astropy, location=seoul_location))
+
+                        altitude = altaz.alt.degree
+
+                        azimuth = altaz.az.degree
+
+
+                        st.sidebar.metric("고도 (°)", f"{altitude:.2f}")
+
+                        st.sidebar.metric("방위각 (°)", f"{azimuth:.2f}")
+
+                    except Exception as e:
+
+                        st.sidebar.warning(f"천체 위치 계산 실패: {e}")
+
+                else:
+
+                    st.sidebar.info("FITS 헤더에 RA/DEC 정보가 없습니다.")
+
+
+    except Exception as e:
+
+        st.error(f"파일 처리 중 오류가 발생했습니다: {e}")
+
+        st.warning("파일이 손상되었거나 유효한 FITS 형식이 아닐 수 있습니다.")
+
+else:
+
+    st.info("시작하려면 FITS 파일을 업로드해주세요.")
+
+
+# --- 💬 댓글 기능 (세션 기반) ---
+
+st.divider()
+
+st.header("💬 의견 남기기")
+
+
+if "comments" not in st.session_state:
+
+    st.session_state.comments = []
+
+
+with st.form(key="comment_form"):
+
+    name = st.text_input("이름을 입력하세요", key="name_input")
+
+    comment = st.text_area("댓글을 입력하세요", key="comment_input")
+
+    submitted = st.form_submit_button("댓글 남기기")
+
+
+    if submitted:
+
+        if name.strip() and comment.strip():
+
+            st.session_state.comments.append((name.strip(), comment.strip()))
+
+            st.success("댓글이 저장되었습니다.")
+
+        else:
+
+            st.warning("이름과 댓글을 모두 입력해주세요.")
+
+
+if st.session_state.comments:
+
+    st.subheader("📋 전체 댓글")
+
+    for i, (n, c) in enumerate(reversed(st.session_state.comments), 1):
+
+        st.markdown(f"**{i}. {n}**: {c}")
+
+else:
+
+    st.info("아직 댓글이 없습니다. 첫 댓글을 남겨보세요!")
