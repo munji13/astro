@@ -2,7 +2,3 @@ streamlit
 astropy
 numpy
 pillow
-scipy
-matplotlib
-pandas
-ployly
