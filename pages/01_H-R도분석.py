@@ -5,7 +5,7 @@ import numpy as np
 
 # Streamlit 페이지 설정
 st.title("H-R Diagram with Future Stellar Evolution and Pulsation (10 Stars)")
-st.write("10개의 별의 질량을 입력하여 H-R 다이어그램 상의 현재 위치와 미래 진화 경로, 맥동변광성 단계를 시각화합니다. x축은 분광형으로 표시됩니다.")
+st.write("10개의 별의 질량을 입력하여 H-R 다이어그램 상의 현재 위치와 미래 진화 경로, 맥동변광성 단계를 시각화합니다. x축은 로그스케일 온도로 표시됩니다.")
 
 # 사용자 입력 (10개 별의 질량, 범위 0.08~100 M☉)
 masses = []
@@ -13,41 +13,24 @@ for i in range(10):
     mass = st.number_input(f"별 {i+1} 질량 (태양 질량 단위, M☉)", min_value=0.08, max_value=100.0, value=0.08 + i * 10.0, format="%.2f", key=f"mass_{i}")
     masses.append(mass)
 
-# 광도와 온도 추정 및 분광형 매핑
+# 광도와 온도 추정 (보정된 관계 적용)
 def estimate_luminosity_and_temperature(mass):
-    if mass <= 0.43:  # 저질량 별 (갈색왜성 경계, L ∝ M^2.3)
+    if mass <= 0.43:  # 저질량 별 (L ∝ M^2.3)
         luminosity = (mass / 0.43) ** 2.3
     elif mass <= 2.0:  # 태양 근처 (L ∝ M^4)
         luminosity = (mass / 1.0) ** 4.0
-    else:  # 고질량 별 (L ∝ M^3.0, 보정)
-        luminosity = (mass / 2.0) ** 3.0 * 10.0
+    else:  # 고질량 별 (L ∝ M^3.5, 보정)
+        luminosity = (mass / 2.0) ** 3.5 * 10.0
     temperature = 5800 * (mass ** 0.505) * (1 + 0.1 * np.log10(mass + 1))  # 보정된 온도 관계
-    # 분광형 매핑
-    if temperature >= 30000:
-        spectral_class = 'O'
-    elif temperature >= 10000:
-        spectral_class = 'B'
-    elif temperature >= 7500:
-        spectral_class = 'A'
-    elif temperature >= 6000:
-        spectral_class = 'F'
-    elif temperature >= 5200:
-        spectral_class = 'G'
-    elif temperature >= 3700:
-        spectral_class = 'K'
-    else:
-        spectral_class = 'M'
-    return luminosity, temperature, spectral_class
+    return luminosity, temperature
 
 luminosities = []
 temperatures = []
-spectral_classes = []
 for mass in masses:
-    lum, temp, spec = estimate_luminosity_and_temperature(mass)
+    lum, temp = estimate_luminosity_and_temperature(mass)
     luminosities.append(lum)
     temperatures.append(temp)
-    spectral_classes.append(spec)
-    st.write(f"별 {masses.index(mass)+1}: 질량 {mass:.2f} M☉, 광도 {lum:.2f} L☉, 온도 {temp:.0f} K, 분광형 {spec}")
+    st.write(f"별 {masses.index(mass)+1}: 질량 {mass:.2f} M☉, 광도 {lum:.2f} L☉, 온도 {temp:.0f} K")
 
 # 베지어 곡선 생성 함수
 def bezier_curve(points, n_points=100):
@@ -65,68 +48,63 @@ def bezier_curve(points, n_points=100):
     return curve[:, 0], curve[:, 1]
 
 # H-R 다이어그램 생성 함수
-def plot_hr_diagram(masses, luminosities, temperatures, spectral_classes):
+def plot_hr_diagram(masses, luminosities, temperatures):
     fig, ax = plt.subplots(figsize=(12, 10))
     
     # H-R 다이어그램 배경 설정
     sns.set(style="whitegrid")
+    ax.set_xscale("log")  # 온도 로그스케일 복구
+    ax.set_xlim(150000, 1500)  # 온도 범위
     ax.set_yscale("log")
     ax.set_ylim(1e-6, 1e10)  # 광도 범위
-    ax.set_xlabel("Spectral Class")
+    ax.set_xlabel("Surface Temperature (K)")
     ax.set_ylabel("Luminosity (L☉)")
     ax.set_title("Hertzsprung-Russell Diagram (10 Stars)")
     
-    # 분광형 x축 설정
-    spectral_order = ['O', 'B', 'A', 'F', 'G', 'K', 'M']
-    ax.set_xticks(range(len(spectral_order)))
-    ax.set_xticklabels(spectral_order)
-    
-    # 주계열선 데이터 (분광형에 맞게 조정)
+    # 주계열선 데이터 (매끄럽게 조정)
     main_sequence_masses = np.logspace(np.log10(0.08), np.log10(100), 100)
     main_sequence_lum = []
-    main_sequence_spec = []
+    main_sequence_temp = []
     for m in main_sequence_masses:
-        l, t, s = estimate_luminosity_and_temperature(m)
+        l, t = estimate_luminosity_and_temperature(m)
         main_sequence_lum.append(l)
-        main_sequence_spec.append(spectral_order.index(s))
-    ax.plot(main_sequence_spec, main_sequence_lum, 'k-', label="Main Sequence", alpha=0.5)
+        main_sequence_temp.append(t)
+    ax.plot(main_sequence_temp, main_sequence_lum, 'k-', label="Main Sequence", alpha=0.5)
     
     # 각 별의 현재 위치 및 미래 진화 경로와 맥동변광성 표시
     for i in range(len(masses)):
         mass = masses[i]
         lum = luminosities[i]
         temp = temperatures[i]
-        spec = spectral_classes[i]
         
-        # 현재 별 위치 표시 (분광형 인덱스로 변환)
-        spec_idx = spectral_order.index(spec)
-        ax.scatter([spec_idx], [lum], color=f'C{i}', s=100, label=f"Star {i+1} (Main Sequence)", zorder=10)
+        # 현재 별 위치 표시
+        ax.scatter([temp], [lum], color=f'C{i}', s=100, label=f"Star {i+1} (Main Sequence)", zorder=10)
         
         # 미래 진화 경로 및 맥동변광성 제어점 동적 계산
         if mass <= 0.08:  # 갈색왜성
-            future_points = [(spec_idx, lum), (spectral_order.index('M'), lum * 0.005)]
+            future_points = [(temp, lum), (temp * 0.98, lum * 0.005)]
         elif mass < 0.8:  # 저질량 별 (RR Lyrae 가능)
             base_lum = lum * 0.05
             pulsation_lum = base_lum * (1 + 0.2 * np.sin(np.linspace(0, 2 * np.pi, 10)))
-            future_points = [(spec_idx, lum), (spectral_order.index('K'), np.mean(pulsation_lum)), (spectral_order.index('M'), 1e-5 * mass / 0.8)]
+            future_points = [(temp, lum), (temp * 0.85, np.mean(pulsation_lum)), (3000, 1e-5 * mass / 0.8)]  # 온도 낮춤
             for pl in pulsation_lum:
-                ax.scatter([spectral_order.index('K')], [pl], color=f'C{i}', alpha=0.3, s=50)
+                ax.scatter([temp * 0.9], [pl], color=f'C{i}', alpha=0.3, s=50)
         elif mass < 8:  # 중간 질량 별 (세페이드 변광성)
             base_lum = lum * 120
             pulsation_lum = base_lum * (1 + 0.3 * np.sin(np.linspace(0, 2 * np.pi, 10)))
-            future_points = [(spec_idx, lum), (spectral_order.index('K'), np.mean(pulsation_lum)), (spectral_order.index('M'), lum * 15 * mass / 8)]
+            future_points = [(temp, lum), (temp * 0.55, np.mean(pulsation_lum)), (5000, lum * 15 * mass / 8), (3000, 1e-5 * mass / 8)]
             for pl in pulsation_lum:
-                ax.scatter([spectral_order.index('K')], [pl], color=f'C{i+5}', alpha=0.3, s=50)
+                ax.scatter([temp * 0.6], [pl], color=f'C{i+5}', alpha=0.3, s=50)
         else:  # 고질량 및 초고질량 별 (8~100 M☉)
-            future_points = [(spec_idx, lum), (spectral_order.index('A'), lum * 1500), (spectral_order.index('O'), 1e7 * mass / 100)]
+            future_points = [(temp, lum), (temp * 0.35, lum * 1500), (10000, 1e7 * mass / 100)]
         
         # 베지어 곡선으로 미래 경로 그리기
-        future_spec, future_lum = bezier_curve(future_points)
+        future_temp, future_lum = bezier_curve(future_points)
         
         # 미래 경로 (녹색 계열 곡선, 화살표)
-        ax.plot(future_spec, future_lum, f'C{i+5}--', alpha=0.7)
-        ax.arrow(future_spec[-2], future_lum[-2], future_spec[-1] - future_spec[-2], future_lum[-1] - future_lum[-2],
-                 color=f'C{i+5}', width=0.1, head_width=0.3, head_length=0.5, alpha=0.7)
+        ax.plot(future_temp, future_lum, f'C{i+5}--', alpha=0.7)
+        ax.arrow(future_temp[-2], future_lum[-2], future_temp[-1] - future_temp[-2], future_lum[-1] - future_lum[-2],
+                 color=f'C{i+5}', width=0.05, head_width=0.2, head_length=0.3, alpha=0.7)
     
     # 범례 추가
     ax.legend()
@@ -135,7 +113,7 @@ def plot_hr_diagram(masses, luminosities, temperatures, spectral_classes):
 
 # H-R 다이어그램 표시
 if st.button("H-R 다이어그램 생성"):
-    fig = plot_hr_diagram(masses, luminosities, temperatures, spectral_classes)
+    fig = plot_hr_diagram(masses, luminosities, temperatures)
     st.pyplot(fig)
 
 # 설명
@@ -143,11 +121,11 @@ st.markdown("""
 ### 사용 방법
 1. 10개의 별의 질량(M☉)을 입력하세요 (범위: 0.08~100 M☉).
 2. 'H-R 다이어그램 생성' 버튼을 클릭하세요.
-3. H-R 다이어그램에 각 별의 현재 위치(다양한 색상 점)와 미래 진화 경로(녹색 계열 곡선, 화살표), 맥동변광성 구간(점선)이 표시됩니다. x축은 분광형(O, B, A, F, G, K, M)으로 표시됩니다.
+3. H-R 다이어그램에 각 별의 현재 위치(다양한 색상 점)와 미래 진화 경로(녹색 계열 곡선, 화살표), 맥동변광성 구간(점선)이 표시됩니다.
 
 ### 참고
 - 광도와 온도는 질량에 따라 보정된 관계(L ∝ M^2.3~4.0, T ∝ M^0.505)를 사용해 추정됩니다.
-- 주계열선은 질량 범위(0.08~100 M☉)에 맞춰 매끄럽게 조정되었으며, 분광형에 매핑됩니다.
+- 주계열선은 질량 범위(0.08~100 M☉)에 맞춰 매끄럽게 조정되었습니다.
 - 맥동변광성 단계: 저질량(0.08~0.8 M☉)은 RR Lyrae, 중간 질량(0.8~8 M☉)은 세페이드 변광성으로 모델링. 광도 변동은 사인 함수로 단순화.
 - 진화 경로는 현재 주계열성에서 미래 단계로만 계산되며, 베지어 곡선으로 부드럽게 표현되며, 화살표로 방향을 나타냅니다.
 - 0.08 M☉ 이하(갈색왜성), 0.8~8 M☉(중간 질량), 8~100 M☉(고질량/초고질량) 별에 따라 경로가 다릅니다.
