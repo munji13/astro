@@ -5,12 +5,12 @@ import numpy as np
 
 # Streamlit 페이지 설정
 st.title("H-R Diagram with Stellar Evolution Path (10 Stars)")
-st.write("10개의 별의 질량을 입력하여 H-R 다이어그램 상의 위치와 진화 경로를 시각화합니다.")
+st.write("10개의 별의 질량을 입력하여 H-R 다이어그램 상의 위치와 독립적인 진화 경로를 시각화합니다.")
 
-# 사용자 입력 (10개 별의 질량)
+# 사용자 입력 (10개 별의 질량, 범위 0.08~100 M☉)
 masses = []
 for i in range(10):
-    mass = st.number_input(f"별 {i+1} 질량 (태양 질량 단위, M☉)", min_value=0.1, max_value=50.0, value=1.0 + i * 0.5, format="%.2f", key=f"mass_{i}")
+    mass = st.number_input(f"별 {i+1} 질량 (태양 질량 단위, M☉)", min_value=0.08, max_value=100.0, value=0.08 + i * 10.0, format="%.2f", key=f"mass_{i}")
     masses.append(mass)
 
 # 광도와 온도 추정
@@ -35,7 +35,6 @@ def bezier_curve(points, n_points=100):
     for i in range(n_points):
         t_i = t[i]
         for j in range(n + 1):
-            # 조합 계수 수동 계산 (n choose j)
             coef = 1.0
             for k in range(j):
                 coef *= (n - k) / (k + 1)
@@ -47,22 +46,22 @@ def bezier_curve(points, n_points=100):
 def plot_hr_diagram(masses, luminosities, temperatures):
     fig, ax = plt.subplots(figsize=(12, 10))
     
-    # H-R 다이어그램 배경 설정
+    # H-R 다이어그램 배경 설정 (광도 범위 확장)
     sns.set(style="whitegrid")
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim(50000, 2000)  # 온도는 왼쪽이 높음
-    ax.set_ylim(1e-4, 1e6)
+    ax.set_xlim(100000, 2000)  # 온도 범위 확장 (초고질량 별 고려)
+    ax.set_ylim(1e-4, 1e8)    # 광도 범위 확장 (초고질량 별 광도 반영)
     ax.set_xlabel("Surface Temperature (K)")
     ax.set_ylabel("Luminosity (L☉)")
     ax.set_title("Hertzsprung-Russell Diagram (10 Stars)")
     
     # 주계열성 영역 표시
-    main_sequence_temp = np.logspace(np.log10(2000), np.log10(50000), 100)
+    main_sequence_temp = np.logspace(np.log10(2000), np.log10(100000), 100)
     main_sequence_lum = 10 ** (3.5 * np.log10(main_sequence_temp / 5800))
     ax.plot(main_sequence_temp, main_sequence_lum, 'k-', label="Main Sequence", alpha=0.5)
     
-    # 각 별의 현재 위치 및 진화 경로 표시
+    # 각 별의 현재 위치 및 독립적인 진화 경로 표시
     for i in range(len(masses)):
         mass = masses[i]
         lum = luminosities[i]
@@ -71,16 +70,19 @@ def plot_hr_diagram(masses, luminosities, temperatures):
         # 현재 별 위치 표시
         ax.scatter([temp], [lum], color=f'C{i}', s=100, label=f"Star {i+1} (Main Sequence)", zorder=10)
         
-        # 진화 경로 정의
-        if mass < 0.8:  # 저질량 별
-            past_points = [(temp * 1.5, lum * 1000), (temp, lum)]
-            future_points = [(temp, lum), (temp * 0.8, lum * 0.01), (30000, 1e-4)]
+        # 진화 경로 제어점 동적 계산
+        if mass <= 0.08:  # 갈색왜성 (진화 경로 거의 없음)
+            past_points = [(temp * 1.1, lum * 50), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.95, lum * 0.01)]
+        elif mass < 0.8:  # 저질량 별
+            past_points = [(temp * 1.2, lum * 500), (temp * 1.1, lum * 200), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.9, lum * 0.05), (30000 * mass / 0.8, 1e-4 * mass / 0.8)]
         elif mass < 8:  # 중간 질량 별
-            past_points = [(temp * 1.5, lum * 1000), (temp, lum)]
-            future_points = [(temp, lum), (temp * 0.5, lum * 100), (10000, lum * 10), (30000, 1e-4)]
-        else:  # 고질량 별
-            past_points = [(temp * 1.2, lum * 1000), (temp, lum)]
-            future_points = [(temp, lum), (temp * 0.3, lum * 1000), (5000, 1e5)]
+            past_points = [(temp * 1.3, lum * 800), (temp * 1.1, lum * 300), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.6, lum * 150), (10000 * mass / 8, lum * 20 * mass / 8), (30000, 1e-4 * mass / 8)]
+        else:  # 고질량 및 초고질량 별 (8~100 M☉)
+            past_points = [(temp * 1.2, lum * 1200), (temp * 1.05, lum * 600), (temp, lum)]
+            future_points = [(temp, lum), (temp * 0.4, lum * 2000), (5000 * mass / 100, 1e6 * mass / 100)]
         
         # 베지어 곡선으로 경로 그리기
         past_temp, past_lum = bezier_curve(past_points)
@@ -109,13 +111,13 @@ if st.button("H-R 다이어그램 생성"):
 # 설명
 st.markdown("""
 ### 사용 방법
-1. 10개의 별의 질량(M☉)을 입력하세요.
+1. 10개의 별의 질량(M☉)을 입력하세요 (범위: 0.08~100 M☉).
 2. 'H-R 다이어그램 생성' 버튼을 클릭하세요.
 3. H-R 다이어그램에 각 별의 위치(다양한 색상 점), 과거 진화 경로(해당 색상 곡선, 화살표), 미래 진화 경로(다른 색상 곡선, 화살표)가 표시됩니다.
 
 ### 참고
 - 광도와 온도는 질량-광도 관계(L ∝ M^3.5)와 질량-온도 관계(T ∝ M^0.5)를 사용해 추정됩니다.
-- 진화 경로는 베지어 곡선으로 부드럽게 표현되며, 화살표로 방향을 나타냅니다.
-- 저질량(< 0.8 M☉), 중간 질량(0.8–8 M☉), 고질량(> 8 M☉) 별에 따라 경로가 다릅니다.
+- 진화 경로는 각 별의 질량에 따라 독립적으로 계산되며, 베지어 곡선으로 부드럽게 표현되며, 화살표로 방향을 나타냅니다.
+- 0.08 M☉ 이하(갈색왜성), 0.8~8 M☉(중간 질량), 8~100 M☉(고질량/초고질량) 별에 따라 경로가 다릅니다.
 - 이 프로그램은 단순화된 모델을 사용하며, 실제 천문학적 시뮬레이션은 더 복잡합니다.
 """)
